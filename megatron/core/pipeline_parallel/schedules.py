@@ -334,6 +334,7 @@ def forward_backward_no_pipelining(
                 config,
                 collect_non_loss_data,
             )
+
             if not forward_only:
                 backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config)
 
@@ -349,7 +350,6 @@ def forward_backward_no_pipelining(
         config,
         collect_non_loss_data,
     )
-
     if not forward_only:
         backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config)
 

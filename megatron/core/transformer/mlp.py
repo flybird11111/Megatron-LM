@@ -50,7 +50,6 @@ class MLP(MegatronModule):
         ffn_hidden_size = self.config.ffn_hidden_size
         if self.config.gated_linear_unit:
             ffn_hidden_size *= 2
-
         self.linear_fc1 = build_module(
             submodules.linear_fc1,
             self.config.hidden_size,
