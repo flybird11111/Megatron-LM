@@ -59,6 +59,7 @@ class RotaryEmbedding(nn.Module):
                 / dim
             )
         )
+        self.max_seq_len_cached = 0
 
     def forward(self, max_seq_len: int, offset: int = 0) -> Tensor:
         """Forward pass of RoPE embedding.
@@ -70,24 +71,29 @@ class RotaryEmbedding(nn.Module):
         Returns:
             Tensor: Embeddings after applying RoPE.
         """
-        seq = (
-            torch.arange(max_seq_len, device=self.inv_freq.device, dtype=self.inv_freq.dtype)
-            + offset
-        )
+        if max_seq_len > self.max_seq_len_cached:
+            self.max_seq_len_cached = max_seq_len
+            seq = (
+                torch.arange(max_seq_len, device=self.inv_freq.device, dtype=self.inv_freq.dtype)
+                + offset
+            )
 
-        if self.seq_len_interpolation_factor is not None:
-            seq *= 1 / self.seq_len_interpolation_factor
+            if self.seq_len_interpolation_factor is not None:
+                seq *= 1 / self.seq_len_interpolation_factor
 
-        freqs = torch.outer(seq, self.inv_freq)
-        # first part even vector components, second part odd vector components,
-        #  2 * dim in dimension size
-        emb = torch.cat((freqs, freqs), dim=-1)
-        # emb [seq_length, .., dim]
-        emb = emb[:, None, None, :]
-        if parallel_state.get_context_parallel_world_size() > 1:
-            # slice rotary_pos_emb along sequence dimension and select the parition of the current CP rank
-            emb = get_pos_emb_on_this_cp_rank(emb, 0)
-        return emb
+            freqs = torch.outer(seq, self.inv_freq)
+            # first part even vector components, second part odd vector components,
+            #  2 * dim in dimension size
+            emb = torch.cat((freqs, freqs), dim=-1)
+            # emb [seq_length, .., dim]
+            emb = emb[:, None, None, :]
+            if parallel_state.get_context_parallel_world_size() > 1:
+                # slice rotary_pos_emb along sequence dimension and select the parition of the current CP rank
+                emb = get_pos_emb_on_this_cp_rank(emb, 0)
+            self.register_buffer("emb_cached", emb, persistent=False)
+            return emb
+        else:
+            return self.emb_cached
 
     def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
         state_dict.pop(f'{prefix}inv_freq', None)
@@ -141,27 +147,41 @@ def _rotate_half(x: Tensor) -> Tensor:
     return torch.cat((-x2, x1), dim=-1)
 
 
-def apply_rotary_pos_emb(t: Tensor, freqs: Tensor) -> Tensor:
-    """Apply rotary positional embedding to input tensor T.
+# def apply_rotary_pos_emb(t: Tensor, freqs: Tensor) -> Tensor:
+#     """Apply rotary positional embedding to input tensor T.
 
-    check https://kexue.fm/archives/8265 for detailed formulas
+#     check https://kexue.fm/archives/8265 for detailed formulas
 
-    Args:
-        t (Tensor): Input tensor T is of shape [seq_length, ... , dim]
-        freqs (Tensor): Rotary Positional embedding tensor freq is of shape [seq_length, ..., dim]
+#     Args:
+#         t (Tensor): Input tensor T is of shape [seq_length, ... , dim]
+#         freqs (Tensor): Rotary Positional embedding tensor freq is of shape [seq_length, ..., dim]
 
-    Returns:
-        Tensor: The input tensor after applying RoPE
-    """
-    rot_dim = freqs.shape[-1]
+#     Returns:
+#         Tensor: The input tensor after applying RoPE
+#     """
+#     rot_dim = freqs.shape[-1]
 
-    # ideally t_pass is empty so rotary pos embedding is applied to all tensor t
-    t, t_pass = t[..., :rot_dim], t[..., rot_dim:]
+#     # ideally t_pass is empty so rotary pos embedding is applied to all tensor t
+#     t, t_pass = t[..., :rot_dim], t[..., rot_dim:]
 
-    # first part is cosine component
-    # second part is sine component, need to change signs with _rotate_half method
-    cos_ = torch.cos(freqs).to(t.dtype)
-    sin_ = torch.sin(freqs).to(t.dtype)
+#     # first part is cosine component
+#     # second part is sine component, need to change signs with _rotate_half method
+#     cos_ = torch.cos(freqs).to(t.dtype)
+#     sin_ = torch.sin(freqs).to(t.dtype)
 
-    t = (t * cos_) + (_rotate_half(t) * sin_)
-    return torch.cat((t, t_pass), dim=-1)
+#     t = (t * cos_) + (_rotate_half(t) * sin_)
+#     return torch.cat((t, t_pass), dim=-1)
+def rotate_half(x):
+    """Rotates half the hidden dims of the input."""
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2 :]
+    return torch.cat((-x2, x1), dim=-1)
+def  apply_rotary_pos_emb(q, k, cos, sin, position_ids):
+    # The first two dimensions of cos and sin are always 1, so we can `squeeze` them.
+    cos = cos.squeeze(1).squeeze(0)  # [seq_len, dim]
+    sin = sin.squeeze(1).squeeze(0)  # [seq_len, dim]
+    cos = cos[position_ids].unsqueeze(1)  # [bs, 1, seq_len, dim]
+    sin = sin[position_ids].unsqueeze(1)  # [bs, 1, seq_len, dim]
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    return q_embed, k_embed

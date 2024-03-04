@@ -7,6 +7,7 @@ import torch
 from megatron import get_args
 from megatron.core import tensor_parallel
 from .module import MegatronModule
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
 from .enums import AttnMaskType
 from .language_model import parallel_lm_logits
@@ -28,15 +29,26 @@ def post_language_model_processing(lm_output, labels, logit_weights,
         return output.transpose(0,1).contiguous()
     else:
         # [b s] => [s b]
-        labels = labels.transpose(0,1).contiguous()
-        if fp16_lm_cross_entropy:
-            assert output.dtype == torch.half
-            loss = tensor_parallel.vocab_parallel_cross_entropy(output, labels)
-        else:
-            loss = tensor_parallel.vocab_parallel_cross_entropy(output.float(), labels)
-        
+        # labels = labels.transpose(0,1).contiguous()
+        # if fp16_lm_cross_entropy:
+        #     assert output.dtype == torch.half
+        #     loss = tensor_parallel.vocab_parallel_cross_entropy(output, labels)
+        # else:
+        #     loss = tensor_parallel.vocab_parallel_cross_entropy(output.float(), labels)
+        # print("outputoutput", output.shape)
+        # print("labelslabels", labels.shape)
+        output = output.transpose(0,1)
+        # move labels to correct device to enable model parallelism
+        labels = labels.to(output.device)
+        # Shift so that tokens < n predict n
+        shift_logits = output[..., :-1, :].contiguous()
+        shift_labels = labels[..., 1:].contiguous()
+        loss_fct = CrossEntropyLoss()
+        # loss = loss_fct(output, labels)
+        loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
         # [s b] => [b, s]
-        loss = loss.transpose(0,1).contiguous()
+        # loss = loss.transpose(0,1).contiguous()
+        # print("losslosslosss", loss)
         return loss
 
 
@@ -87,7 +99,7 @@ class GPTModel(MegatronModule):
             retriever_position_ids=retriever_position_ids,
             retriever_attn_mask=retriever_attn_mask,
             inference_params=inference_params)
-
+        # print("if self.post_process:", self.post_process)
         if self.post_process:
             return post_language_model_processing(
                 lm_output, labels,

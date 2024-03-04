@@ -127,6 +127,7 @@ def _batched_p2p_ops(
 ):
     ops = []
     if tensor_send_prev is not None:
+        # print("tensor_send_prev", tensor_send_prev.shape)
         send_prev_op = torch.distributed.P2POp(
             torch.distributed.isend,
             tensor_send_prev,
@@ -143,6 +144,7 @@ def _batched_p2p_ops(
         )
         ops.append(recv_prev_op)
     if tensor_send_next is not None:
+        # print("tensor_send_next", tensor_send_next.shape)
         send_next_op = torch.distributed.P2POp(
             torch.distributed.isend,
             tensor_send_next,

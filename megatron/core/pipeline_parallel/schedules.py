@@ -192,6 +192,10 @@ def forward_step(
             loss, loss_reduced = output_tensor
             output_tensor = loss / num_microbatches
             forward_data_store.append(loss_reduced)
+            # output_tensor, loss = loss_func(output_tensor)
+            # loss, loss_reduced = output_tensor, [loss_func]
+            # output_tensor = loss / num_microbatches
+            # forward_data_store.append(loss_reduced)
         else:
             data = loss_func(output_tensor, non_loss_data=True)
             forward_data_store.append(data)
@@ -247,6 +251,7 @@ def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, c
     if output_tensor_grad[0] is None and config.grad_scale_func is not None:
         output_tensor[0] = config.grad_scale_func(output_tensor[0])
 
+    config.deallocate_pipeline_outputs = False
     if config.deallocate_pipeline_outputs:
         custom_backward(output_tensor[0], output_tensor_grad[0])
     else:
@@ -289,7 +294,7 @@ def forward_backward_no_pipelining(
     seq_length: int,  # unused
     micro_batch_size: int,  # unused
     decoder_seq_length: int = None,  # unused
-    forward_only: bool = False,
+    forward_only: bool = True,
     collect_non_loss_data: bool = False,
 ):
     """Run forward and backward passes with no pipeline parallelism
@@ -334,6 +339,7 @@ def forward_backward_no_pipelining(
                 config,
                 collect_non_loss_data,
             )
+
             if not forward_only:
                 backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config)
 
@@ -349,7 +355,6 @@ def forward_backward_no_pipelining(
         config,
         collect_non_loss_data,
     )
-
     if not forward_only:
         backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config)
 
@@ -978,6 +983,7 @@ def get_tensor_shapes(
             tensor_shapes.append((seq_length, micro_batch_size, config.hidden_size))
     else:
         tensor_shapes.append((seq_length, micro_batch_size, config.hidden_size))
+        # tensor_shapes.append((micro_batch_size, seq_length, config.hidden_size))
     return tensor_shapes
 
 
@@ -987,6 +993,8 @@ def recv_forward(tensor_shapes, config):
         if tensor_shape is None:
             input_tensors.append(None)
         else:
+            # input_tensor = p2p_communication.recv_forward(tensor_shape, config)
+            # input_tensors.append(input_tensor)
             input_tensors.append(p2p_communication.recv_forward(tensor_shape, config))
     return input_tensors
 
@@ -1185,7 +1193,7 @@ def forward_backward_pipelining_without_interleaving(
         if not forward_only:
             input_tensors.append(input_tensor)
             output_tensors.append(output_tensor)
-            deallocate_output_tensor(output_tensor[0], config.deallocate_pipeline_outputs)
+            # deallocate_output_tensor(output_tensor[0], config.deallocate_pipeline_outputs)
 
     # Before running 1F1B, need to receive first forward tensor.
     # If all microbatches are run in warmup / cooldown phase, then no need to
@@ -1231,7 +1239,7 @@ def forward_backward_pipelining_without_interleaving(
             # Add input_tensor and output_tensor to end of list.
             input_tensors.append(input_tensor)
             output_tensors.append(output_tensor)
-            deallocate_output_tensor(output_tensor[0], config.deallocate_pipeline_outputs)
+            # deallocate_output_tensor(output_tensor[0], config.deallocate_pipeline_outputs)
 
             # Pop input_tensor and output_tensor from the start of the list for
             # the backward pass.

@@ -42,8 +42,8 @@ def parallel_lm_logits(input_, word_embeddings_weight, parallel_output,
         sequence_parallel=args.sequence_parallel)
     # Gather if needed.
 
-    if parallel_output:
-        return logits_parallel
+    # if parallel_output:
+    #     return logits_parallel
 
     return tensor_parallel.gather_from_tensor_model_parallel_region(logits_parallel)
 
@@ -213,6 +213,7 @@ class Embedding(MegatronModule):
     def forward(self, input_ids, position_ids, tokentype_ids=None):
         # Embeddings.
         words_embeddings = self.word_embeddings(input_ids)
+        self.add_position_embedding = False
         if self.add_position_embedding:
             position_embeddings = self.position_embeddings(position_ids)
             embeddings = words_embeddings + position_embeddings
@@ -233,17 +234,17 @@ class Embedding(MegatronModule):
             embeddings = embeddings.float()
 
         # Dropout.
-        if self.sequence_parallel:
-            embeddings = tensor_parallel.scatter_to_sequence_parallel_region(embeddings)
-            # `scatter_to_sequence_parallel_region` returns a view, which prevents
-            # the original tensor from being garbage collected. Clone to facilitate GC.
-            # Has a small runtime cost (~0.5%).
-            if self.clone_scatter_output_in_embedding:
-                embeddings = embeddings.clone()
-            with tensor_parallel.get_cuda_rng_tracker().fork():
-                embeddings = self.embedding_dropout(embeddings)
-        else:
-            embeddings = self.embedding_dropout(embeddings)
+        # if self.sequence_parallel:
+        #     embeddings = tensor_parallel.scatter_to_sequence_parallel_region(embeddings)
+        #     # `scatter_to_sequence_parallel_region` returns a view, which prevents
+        #     # the original tensor from being garbage collected. Clone to facilitate GC.
+        #     # Has a small runtime cost (~0.5%).
+        #     if self.clone_scatter_output_in_embedding:
+        #         embeddings = embeddings.clone()
+        #     with tensor_parallel.get_cuda_rng_tracker().fork():
+        #         embeddings = self.embedding_dropout(embeddings)
+        # else:
+        #     embeddings = self.embedding_dropout(embeddings)
 
         return embeddings
 
@@ -377,8 +378,7 @@ class TransformerLanguageModel(MegatronModule):
             # https://github.com/kingoflolz/mesh-transformer-jax/
             self.rotary_pos_emb = RotaryEmbedding(
                 rotary_dim,
-                args.rotary_percent,
-                seq_len_interpolation_factor=args.rotary_seq_len_interpolation_factor
+                args.rotary_percent
             )
 
         # Encoder (usually set to True, False if part of an encoder-decoder
@@ -480,12 +480,12 @@ class TransformerLanguageModel(MegatronModule):
 
         # Rotary positional embeddings
         rotary_pos_emb = None
-        if self.use_rotary_position_embeddings:
-            if inference_params is not None:
-                rotary_pos_emb = \
-                    self.rotary_pos_emb(inference_params.max_sequence_length)
-            else:
-                rotary_pos_emb = self.rotary_pos_emb(self.seq_length)
+        # if self.use_rotary_position_embeddings:
+        #     if inference_params is not None:
+        #         rotary_pos_emb = \
+        #             self.rotary_pos_emb(inference_params.max_sequence_length)
+        #     else:
+        #         rotary_pos_emb = self.rotary_pos_emb(self.seq_length)
 
         # Run encoder.
         if enc_hidden_states is None:
@@ -523,7 +523,7 @@ class TransformerLanguageModel(MegatronModule):
         else:
             decoder_input = None
 
-        # Run decoder.
+
         decoder_output = self.decoder(
             decoder_input,
             dec_attn_mask,

@@ -204,7 +204,7 @@ class VocabParallelEmbedding(torch.nn.Module):
     def forward(self, input_):
         assert not torch.any(
             (input_ < 0) | (input_ >= self.num_embeddings)
-        ), "An input token is out of bounds of the embedding table"
+        ), f"An input token is out of bounds of the embedding table, {input_}"
         if self.tensor_model_parallel_size > 1:
             # Build the mask.
             input_mask = (input_ < self.vocab_start_index) | (input_ >= self.vocab_end_index)
@@ -333,13 +333,14 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
         else:
             total_input = input
 
+        # print("grad_output.shape", total_input.shape, "weight.shape", weight.shape)
         output = torch.matmul(total_input, weight.t())
         if bias is not None:
             output = output + bias
         return output
 
     @staticmethod
-    @custom_bwd
+    # @custom_bwd
     def backward(ctx, grad_output):
         input, weight = ctx.saved_tensors
         use_bias = ctx.use_bias
@@ -370,13 +371,12 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
         # https://github.com/pytorch/pytorch/blob/c47cf9bc7f9e02f649ab4ed53fe4d35732c92ab6/torch/_refs/__init__.py#L2761
         grad_output = grad_output.contiguous()
         # Convert the tensor shapes to 2D for execution compatibility
-        if grad_output.dim() == 3:
-            grad_output = grad_output.view(
-                grad_output.shape[0] * grad_output.shape[1], grad_output.shape[2]
-            )
-            total_input = total_input.view(
-                total_input.shape[0] * total_input.shape[1], total_input.shape[2]
-            )
+        grad_output = grad_output.view(
+            grad_output.shape[0] * grad_output.shape[1], grad_output.shape[2]
+        )
+        total_input = total_input.view(
+            total_input.shape[0] * total_input.shape[1], total_input.shape[2]
+        )
 
         if ctx.async_grad_allreduce:
             # Asynchronous all-reduce
@@ -398,7 +398,7 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
             )
             # Here we rely on CUDA_DEVICE_MAX_CONNECTIONS=1 to ensure that the
             # reduce scatter is scheduled before the weight gradient computation
-
+        ctx.gradient_accumulation_fusion = False
         if ctx.gradient_accumulation_fusion:
             if weight.main_grad.dtype == torch.float32:
                 fused_weight_gradient_mlp_cuda.wgrad_gemm_accum_fp32(
@@ -435,6 +435,7 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
                 grad_weight = None
         else:
             grad_weight = grad_output.t().matmul(total_input)
+        # print("use_biasuse_biasuse_biasuse_biasuse_bias", use_bias)
         grad_bias = grad_output.sum(dim=0) if use_bias else None
 
         if ctx.sequence_parallel:
@@ -724,6 +725,7 @@ class ColumnParallelLinear(torch.nn.Module):
 
         bias = self.bias if not self.skip_bias_add else None
 
+        self.async_tensor_model_parallel_allreduce = True
         if (
             self.async_tensor_model_parallel_allreduce
             or self.sequence_parallel
@@ -732,6 +734,7 @@ class ColumnParallelLinear(torch.nn.Module):
             input_parallel = input_
         else:
             input_parallel = copy_to_tensor_model_parallel_region(input_)
+            # input_parallel = input_
 
         # Matrix multiply.
         if not weight.requires_grad:
