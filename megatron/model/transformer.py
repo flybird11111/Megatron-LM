@@ -105,8 +105,6 @@ class ParallelMLP(MegatronModule):
         self.add_bias = True
 
         ffn_hidden_size = config.ffn_hidden_size
-        # print("config.ffn_hidden_size", config.ffn_hidden_size)
-        # print("config.hidden_size", config.hidden_size)
         # if config.gated_linear_unit:
         #     ffn_hidden_size *= 2
 
@@ -154,7 +152,6 @@ class ParallelMLP(MegatronModule):
         #     self.activation_func = F.gelu
 
         # Project back to h.
-        print("self.activation_func", self.activation_func)
         self.dense_4h_to_h = tensor_parallel.RowParallelLinear(
             config.ffn_hidden_size,
             config.hidden_size,
@@ -184,8 +181,6 @@ class ParallelMLP(MegatronModule):
         intermediate_0, bias_parallel = self.dense_h_to_4h(hidden_states)
         # output = self.activation_func(intermediate_parallel)
         intermediate_1, bias_parallel_up = self.up_proj(hidden_states)
-        # print("intermediate_parallel", intermediate_parallel.shape)
-        # print("intermediate_parallel_up", intermediate_parallel_up.shape)
         output, output_bias = self.dense_4h_to_h(self.activation_func(intermediate_0)*intermediate_1)
         return output, output_bias
 
@@ -765,7 +760,6 @@ class ParallelAttention(MegatronModule):
         #     args.rotary_percent,
         #     seq_len_interpolation_factor=args.rotary_seq_len_interpolation_factor
         # )
-        print("args.rotary_seq_len_interpolation_factor", args.rotary_seq_len_interpolation_factor)
         self.seq_length = args.seq_length
         self.rotary_emb = LlamaRotaryEmbedding(
             rotary_dim,
@@ -965,13 +959,8 @@ class ParallelAttention(MegatronModule):
 
         # apply relative positional encoding (rotary embedding)
         # rotary_pos_emb = self.rotary_pos_emb(self.seq_length)
-        # if isinstance(rotary_pos_emb, tuple):
-        #     rotary_pos_emb = rotary_pos_emb
-        # else:
-        #     rotary_pos_emb = ((rotary_pos_emb,) * 2)
         # q_pos_emb, k_pos_emb = rotary_pos_emb
-        # print("q_pos_emb", q_pos_emb.shape)
-        # print("k_pos_emb", k_pos_emb.shape)
+
         kv_seq_len = value_layer.shape[0]
         query_layer = query_layer.permute(1,2,0,3)
         key_layer = key_layer.permute(1,2,0,3)
@@ -995,12 +984,11 @@ class ParallelAttention(MegatronModule):
                 context_layer = self.core_attention(
                     query_layer, key_layer, value_layer, attention_mask)
         else:
-            # batch_size = q.shape[0]
             # q, k, v = [rearrange(x, 's b ... -> (b s) ...').contiguous()
             #            for x in (query_layer, key_layer, value_layer)]
             if not self.sequence_parallel:
-                # with tensor_parallel.get_cuda_rng_tracker().fork():
-                context_layer = self.core_attention_flash(query_layer, key_layer, value_layer)
+                with tensor_parallel.get_cuda_rng_tracker().fork():
+                    context_layer = self.core_attention_flash(query_layer, key_layer, value_layer)
             else:
                 context_layer = self.core_attention_flash(query_layer, key_layer, value_layer)
 
@@ -1056,7 +1044,7 @@ class ParallelTransformerLayer(MegatronModule):
     def __init__(self, config,
                  layer_number, layer_type=LayerType.encoder,
                  self_attn_mask_type=AttnMaskType.padding,
-                 drop_path_rate=0.1):
+                 drop_path_rate=0.):
         args = get_args()
 
         super(ParallelTransformerLayer, self).__init__()
@@ -2028,16 +2016,3 @@ class ParallelTransformer(MegatronModule):
             state_dict_[newkey] = state_dict[key]
 
         super().load_state_dict(state_dict_, strict)
-
-
-
-
-
-
-
-
-
-
-
-
-

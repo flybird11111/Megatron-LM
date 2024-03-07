@@ -816,31 +816,13 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         args.curr_iteration = iteration
 
         performance_evaluator.on_step_start(iteration)
-        if iteration != 348:
-            loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = \
-                train_step(forward_step_func,
-                        train_data_iterator,
-                        model,
-                        optimizer,
-                        opt_param_scheduler,
-                        config)
-        else:
-            with torch.profiler.profile(
-                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                schedule=torch.profiler.schedule(wait=1, warmup=2, active=3, repeat=5),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler("/home/jiangmingyan/workspace/trace/pp/profile/LLAMA-12-bf16/megatron"),
-                with_stack=True,
-                record_shapes=True
-            ) as prof:
-                for _ in range(0 + 2 + 5):
-                    loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = \
-                        train_step(forward_step_func,
-                                train_data_iterator,
-                                model,
-                                optimizer,
-                                opt_param_scheduler,
-                                config)
-                    prof.step()
+        loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = \
+            train_step(forward_step_func,
+                    train_data_iterator,
+                    model,
+                    optimizer,
+                    opt_param_scheduler,
+                    config)
 
         iteration += 1
         args.consumed_train_samples += mpu.get_data_parallel_world_size() * \

@@ -48,7 +48,6 @@ def post_language_model_processing(lm_output, labels, logit_weights,
         loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
         # [s b] => [b, s]
         # loss = loss.transpose(0,1).contiguous()
-        # print("losslosslosss", loss)
         return loss
 
 
@@ -99,7 +98,6 @@ class GPTModel(MegatronModule):
             retriever_position_ids=retriever_position_ids,
             retriever_attn_mask=retriever_attn_mask,
             inference_params=inference_params)
-        # print("if self.post_process:", self.post_process)
         if self.post_process:
             return post_language_model_processing(
                 lm_output, labels,

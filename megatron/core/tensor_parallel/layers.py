@@ -204,7 +204,7 @@ class VocabParallelEmbedding(torch.nn.Module):
     def forward(self, input_):
         assert not torch.any(
             (input_ < 0) | (input_ >= self.num_embeddings)
-        ), f"An input token is out of bounds of the embedding table, {input_}"
+        ), f"An input token is out of bounds of the embedding table"
         if self.tensor_model_parallel_size > 1:
             # Build the mask.
             input_mask = (input_ < self.vocab_start_index) | (input_ >= self.vocab_end_index)
@@ -333,7 +333,6 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
         else:
             total_input = input
 
-        # print("grad_output.shape", total_input.shape, "weight.shape", weight.shape)
         output = torch.matmul(total_input, weight.t())
         if bias is not None:
             output = output + bias
@@ -435,7 +434,6 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
                 grad_weight = None
         else:
             grad_weight = grad_output.t().matmul(total_input)
-        # print("use_biasuse_biasuse_biasuse_biasuse_bias", use_bias)
         grad_bias = grad_output.sum(dim=0) if use_bias else None
 
         if ctx.sequence_parallel:
@@ -734,7 +732,6 @@ class ColumnParallelLinear(torch.nn.Module):
             input_parallel = input_
         else:
             input_parallel = copy_to_tensor_model_parallel_region(input_)
-            # input_parallel = input_
 
         # Matrix multiply.
         if not weight.requires_grad:

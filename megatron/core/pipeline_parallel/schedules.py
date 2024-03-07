@@ -294,7 +294,7 @@ def forward_backward_no_pipelining(
     seq_length: int,  # unused
     micro_batch_size: int,  # unused
     decoder_seq_length: int = None,  # unused
-    forward_only: bool = True,
+    forward_only: bool = False,
     collect_non_loss_data: bool = False,
 ):
     """Run forward and backward passes with no pipeline parallelism
@@ -983,7 +983,6 @@ def get_tensor_shapes(
             tensor_shapes.append((seq_length, micro_batch_size, config.hidden_size))
     else:
         tensor_shapes.append((seq_length, micro_batch_size, config.hidden_size))
-        # tensor_shapes.append((micro_batch_size, seq_length, config.hidden_size))
     return tensor_shapes
 
 
@@ -993,8 +992,6 @@ def recv_forward(tensor_shapes, config):
         if tensor_shape is None:
             input_tensors.append(None)
         else:
-            # input_tensor = p2p_communication.recv_forward(tensor_shape, config)
-            # input_tensors.append(input_tensor)
             input_tensors.append(p2p_communication.recv_forward(tensor_shape, config))
     return input_tensors
 
